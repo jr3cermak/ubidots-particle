@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2013-2016 Ubidots.
+Copyright (c) 2013-2017 Ubidots.
 
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
@@ -22,6 +22,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Original made by Mateo Velez - Metavix for Ubidots Inc
 Modified and maintained by Jose Garcia for Ubidots Inc
+Modified by Rob Cermak <rob.cermak@gmail.com>
 
 */
 
@@ -33,14 +34,20 @@ CONSTRUCTOR
 ***************************************************************************/
 
 /**
+ * WARNING: This function is slated for deprication due to lack of
+ * documentation for translate.ubidots.com API.
  * Constructor.
  * Default method is UDP
- * Default dsNmae is Particle
+ * Default dsName is Particle
  */
 
-Ubidots::Ubidots(char* token, char* server) {
+Ubidots::Ubidots(const char* token, const char* server) {
     _token = token;
-    _server = server;
+    if (server == NULL) {
+      _server = SERVER;
+    } else {
+      _server = server;
+    }
     _method = TYPE_UDP;
     _dsName = "particle";
     _currentValue = 0;
@@ -50,11 +57,25 @@ Ubidots::Ubidots(char* token, char* server) {
     strcpy(_pId, str.c_str());
 }
 
+Ubidots::Ubidots(const char* token, uint8_t serverMode, uint16_t serverPort) {
+  init(token, serverMode, serverPort); 
+}
+
+Ubidots::Ubidots(const char* token, uint8_t serverMode) {
+  init(token, serverMode, 0);
+}
+
+Ubidots::Ubidots(const char* token) {
+  init(token, MODE_HTTPS, 0);
+}
+
+/***************************************************************************
+PUBLIC FUNCTIONS
+***************************************************************************/
 
 /***************************************************************************
 FUNCTIONS TO RETRIEVE DATA
 ***************************************************************************/
-
 
 /**
  * This function is to get value from the Ubidots API
@@ -72,7 +93,7 @@ float Ubidots::getValue(char* id) {
     char* data = (char *) malloc(sizeof(char) * 200);
     sprintf(data, "%s/%s|GET|%s|%s|end", USER_AGENT, VERSION, _token, id);
 
-    Spark.process(); // Cleans previous processes
+    Particle.process(); // Cleans previous processes
     _client.connect(SERVER, PORT); // Initial connection
 
     while (!_client.connected()) {
@@ -171,7 +192,7 @@ float Ubidots::getValueWithDatasource(char* device, char* variable) {
     char* data = (char *) malloc(sizeof(char) * 300);
     sprintf(data, "%s/%s|LV|%s|%s:%s|end", USER_AGENT, VERSION, _token, device, variable);
 
-    Spark.process(); // Cleans previous processes
+    Particle.process(); // Cleans previous processes
     _client.connect(SERVER, PORT); // Initial connection
 
     while (!_client.connected()) {
@@ -272,7 +293,7 @@ float Ubidots::getValueHTTP(char* id) {
     sprintf(data, "%sHost: things.ubidots.com\r\nUser-Agent: %s/%s\r\n", data, USER_AGENT, VERSION);
     sprintf(data, "%sX-Auth-Token: %s\r\nConnection: close\r\n\r\n", data, _token);
 
-    Spark.process(); // Cleans previous processes
+    Particle.process(); // Cleans previous processes
     _client.connect(SERVERHTTP, PORTHTTP); // Initial connection
 
     while (!_client.connected()) {
@@ -358,6 +379,14 @@ float Ubidots::getValueHTTP(char* id) {
     return num;
 }
 
+/**
+ * This function returns the current device time.
+ * @return seconds since 1970-01-01T00:00.
+ */
+
+unsigned long Ubidots::now() {
+  return Time.now();
+}
 
 /**
  * This function obtains the context from a variable in Ubidots
@@ -376,7 +405,7 @@ char* Ubidots::getVarContext(char* id) {
     sprintf(data, "%sHost: things.ubidots.com\r\nUser-Agent: %s/%s\r\n", data, USER_AGENT, VERSION);
     sprintf(data, "%sX-Auth-Token: %s\r\nConnection: close\r\n\r\n", data, _token);
 
-    Spark.process(); // Cleans previous processes
+    Particle.process(); // Cleans previous processes
     _client.connect(SERVERHTTP, PORTHTTP); // Initial connection
 
     while (!_client.connected()) {
@@ -472,12 +501,12 @@ FUNCTIONS TO SEND DATA
  */
 
 void Ubidots::add(char *variable_id, double value) {
-    return add(variable_id, value, NULL, NULL);
+    return add(variable_id, value, NULL, 0);
 }
 
 
 void Ubidots::add(char *variable_id, double value, char *ctext) {
-    return add(variable_id, value, ctext, NULL);
+    return add(variable_id, value, ctext, 0);
 }
 
 
@@ -497,7 +526,6 @@ void Ubidots::add(char *variable_id, double value, char *ctext, long unsigned ti
 /**
  * This function is to set UDP or TCP as sending data method
  * @arg method is the method that you want to use
- * @return true uppon succes
  */
 
 
@@ -513,7 +541,6 @@ void Ubidots::setMethod(uint8_t method) {
  * if you don't call this method the name by default will be 'Particle'
  * @arg deviceName is the name to display in Ubidots, avoid to use special
  * characters or blank spaces
- * @return true uppon succes
  */
 
 void Ubidots::setDeviceName(char* deviceName) {
@@ -527,7 +554,6 @@ void Ubidots::setDeviceName(char* deviceName) {
  * if you don't call this method the name by default will be the device ID
  * @arg deviceLabel is the device label, avoid to use special
  * characters or blank spaces
- * @return true uppon succes
  */
 
 void Ubidots::setDeviceLabel(char* deviceLabel) {
@@ -536,7 +562,7 @@ void Ubidots::setDeviceLabel(char* deviceLabel) {
 
 
 /**
- * Assamble all package to send in TCP or UDP method
+ * Assemble all package to send in TCP or UDP method
  * @arg timestamp_global [optional] is the timestamp for all the variables added
  using add() method, if a timestamp_val was declared on the add() method, Ubidots
  will take as timestamp for the val the timestamp_val instead of the timestamp_global
@@ -547,18 +573,17 @@ bool Ubidots::sendAll() {
     return sendAll(NULL);
 }
 
-
 bool Ubidots::sendAll(unsigned long timestamp_global) {
     int i;
     char* allData = (char *) malloc(sizeof(char) * 700);
     if ( timestamp_global != NULL) {
-        if (_dsName == "Particle") {
+        if (strcmp(_dsName, "Particle") == 0) {
             sprintf(allData, "%s/%s|POST|%s|%s@%lu%s=>", USER_AGENT, VERSION, _token, _pId, timestamp_global, "000");
         } else {
             sprintf(allData, "%s/%s|POST|%s|%s:%s@%lu%s=>", USER_AGENT, VERSION, _token, _pId, _dsName, timestamp_global, "000");
         }
     } else {
-        if (_dsName == "Particle") {
+        if (strcmp(_dsName, "Particle") == 0) {
             sprintf(allData, "%s/%s|POST|%s|%s=>", USER_AGENT, VERSION, _token, _pId);
         } else {
             sprintf(allData, "%s/%s|POST|%s|%s:%s=>", USER_AGENT, VERSION, _token, _pId, _dsName);
@@ -590,22 +615,23 @@ bool Ubidots::sendAll(unsigned long timestamp_global) {
     if (_method == TYPE_UDP) {
         return sendAllUDP(allData);
     }
+    // If we get here, this may indicate a failure
+    return false;
 }
 
 
 /**
  * Send all package via UDP method
  * @arg buffer the message to send
- * @reutrn true upon success, false upon error.
+ * @return true upon success, false upon error.
  */
 
 bool Ubidots::sendAllUDP(char* buffer) {
-    int size;
     IPAddress ipAddress;
 
     // Obtains the remote server's IP
     HAL_IPAddress ip;
-    network_interface_t t;
+    network_interface_t t = 0;
     ipAddress = (inet_gethostbyname(_server, strlen(_server), &ip, t, NULL)<0) ?
                IPAddress(uint32_t(0)) : IPAddress(ip);
 
@@ -677,7 +703,7 @@ bool Ubidots::sendAllTCP(char* buffer) {
 }
 
 /***************************************************************************
-AUXILIAR FUNCTIONS
+AUXILIARY FUNCTIONS
 ***************************************************************************/
 
 /**
@@ -701,7 +727,7 @@ void Ubidots::setDebug(bool debug) {
  * The Unix time is returned, that is, seconds from 1970-01-01T00:00.
  */
 
-unsigned long Ubidots::ntpUnixTime () {
+unsigned long Ubidots::ntpUnixTime() {
 
     static int udpInited = _clientTMP.begin(123); // open socket on arbitrary port
 
@@ -762,6 +788,43 @@ unsigned long Ubidots::ntpUnixTime () {
     return time - 2208988800ul;       // convert NTP time to Unix time
 }
 
+
+/***************************************************************************
+PRIVATE FUNCTIONS
+***************************************************************************/
+
+void Ubidots::init(const char* token, uint8_t serverMode, uint16_t serverPort) {
+    _token = token;
+    _server = SERVERNAME;
+    _dsName = "particle";
+    _currentValue = 0;
+    val = (Value *)malloc(MAX_VALUES * sizeof(Value));
+    String str = System.deviceID();
+    _pId = new char[str.length() + 1];
+    strcpy(_pId, str.c_str());
+    _serverMode = MODE_HTTPS;
+    if (serverMode == MODE_HTTP) {
+      _serverMode = MODE_HTTP;
+    }
+    setPort(serverPort);
+}
+
+/**
+ * Set or override the server port.
+ * @arg serverPort Set or override the server port otherwise use 80 or 443.
+ */
+
+void Ubidots::setPort(uint16_t serverPort) {
+  if (serverPort > 0) {
+    _port = serverPort;
+  } else {
+    if (_serverMode == MODE_HTTP) {
+      _port = PORTHTTP;
+    } else {
+      _port = PORTHTTPS;
+    }
+  }
+}
 
 /***************************************************************************
 DEPRECATED FUNCTIONS

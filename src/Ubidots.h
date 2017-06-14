@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2013-2016 Ubidots.
+Copyright (c) 2013-2017 Ubidots.
 
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
@@ -22,6 +22,8 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Original maker Mateo Velez - Metavix for Ubidots Inc
 Modified by Jose Garcia for Ubidots Inc
+Modified by Rob Cermak <rob.cermak@gmail.com>
+
 */
 
 #ifndef _Ubidots_H_
@@ -43,7 +45,7 @@ Modified by Jose Garcia for Ubidots Inc
 #define USER_AGENT "Particle"
 #endif
 #ifndef VERSION
-#define VERSION "2.1.12"
+#define VERSION "2.1.13"
 #endif
 #ifndef PORT
 #define PORT 9012
@@ -60,15 +62,26 @@ Modified by Jose Garcia for Ubidots Inc
 #ifndef TIMEOUT
 #define TIMEOUT 10000
 #endif
+#ifndef SERVERNAME
+#define SERVERNAME "things.ubidots.com"
+#endif
 #ifndef SERVERHTTP
 #define SERVERHTTP "things.ubidots.com"
 #endif
 #ifndef PORTHTTP
 #define PORTHTTP 80
 #endif
+#ifndef PORTHTTPS
+#define PORTHTTPS 443
+#endif
+#ifndef MODE_HTTP
+#define MODE_HTTP 1
+#endif
+#ifndef MODE_HTTPS
+#define MODE_HTTPS 2
+#endif
 
 const float ERROR_VALUE = -3.4028235E+8;
-
 
 typedef struct Value {
     char  *idName;
@@ -79,7 +92,10 @@ typedef struct Value {
 
 class Ubidots {
  public:
-    explicit Ubidots(char* token, char* server = SERVER);
+    explicit Ubidots(const char* token);
+    explicit Ubidots(const char* token, const char* server); // Deprecate
+    explicit Ubidots(const char* token, uint8_t serverMode);
+    explicit Ubidots(const char* token, uint8_t serverMode, uint16_t serverPort);
     void add(char *variable_id, double value);
     void add(char *variable_id, double value, char *ctext);
     void add(char *variable_id, double value, char *ctext, unsigned long timestamp);
@@ -87,6 +103,8 @@ class Ubidots {
     float getValueWithDatasource(char* device, char* variable);
     float getValueHTTP(char* id);
     char* getVarContext(char* id);
+    unsigned long now();
+    unsigned long ntpUnixTime();
     bool sendAll();
     bool sendAll(unsigned long timestamp_global);
     void setDeviceName(char* deviceName);
@@ -95,7 +113,8 @@ class Ubidots {
     bool setDatasourceTag(char* dsTag); //Deprecated
     void setDebug(bool debug);
     void setMethod(uint8_t method); // Default UDP
-    unsigned long ntpUnixTime();
+    void setPort(uint16_t serverPort); // Default use specified or 0 (use default mode)
+    void setServerMode(uint8_t serverMode); // Default HTTPS
 
  private:
     TCPClient _client;
@@ -103,12 +122,15 @@ class Ubidots {
     UDP _clientTMP;
     Value * val;
     uint8_t _currentValue;
-    char* _dsName;
+    const char* _dsName;
     bool _debug = false;
     uint8_t _method;
+    uint8_t _serverMode;
     char* _pId;
-    char* _server;
-    char* _token;
+    const char* _server;
+    const char* _token;
+    uint16_t _port;
     bool sendAllUDP(char* buffer);
     bool sendAllTCP(char* buffer);
+    void init(const char* token, uint8_t serverMode, uint16_t serverPort);
 };
