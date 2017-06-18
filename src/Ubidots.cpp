@@ -26,8 +26,8 @@ Modified by Rob Cermak <rob.cermak@gmail.com>
 
 */
 
-#include "Ubidots.h"
-#include "inet_hal.h"
+#include <Ubidots.h>
+//#include "inet_hal.h"
 
 /***************************************************************************
 CONSTRUCTOR
@@ -50,8 +50,10 @@ Ubidots::Ubidots(const char* token, const char* server) {
     }
     _method = TYPE_UDP;
     _dsName = "particle";
-    _currentValue = 0;
     val = (Value *)malloc(MAX_VALUES * sizeof(Value));
+    _currentValue = 0;
+    devices = (Device *)malloc(MAX_DEVICES * sizeof(Device));
+    _currentDevice = 0;
     String str = System.deviceID();
     _pId = new char[str.length() + 1];
     strcpy(_pId, str.c_str());
@@ -76,6 +78,11 @@ PUBLIC FUNCTIONS
 /***************************************************************************
 FUNCTIONS TO RETRIEVE DATA
 ***************************************************************************/
+
+bool Ubidots::getDevices() {
+  char *query = "/datasources";
+  return queryServer(query);
+}
 
 /**
  * This function is to get value from the Ubidots API
@@ -715,6 +722,119 @@ void Ubidots::setDebug(bool debug) {
     _debug = debug;
 }
 
+/**
+ * Returns the current number of known devices
+ * @return integer
+ */
+int Ubidots::numDevices() {
+  return _currentDevice;
+}
+
+/**
+ * Begin a query to the Ubidots REST API service
+ * @return bool flag success or failure
+ */
+bool Ubidots::queryServer(char* query) {
+
+  int timeout = 0;
+  unsigned int res = 0;
+  int len = 0;
+
+  char *url = query;
+  url = "/api/v1.6/datasources/";
+  unsigned char* data = (unsigned char *) malloc(sizeof(unsigned char) * 400);
+
+  sprintf((char *)data, "GET /api/v1.6/datasources/ HTTP/1.1\r\n");
+  sprintf((char *)data, "%sHost: things.ubidots.com\r\nUser-Agent: %s/%s\r\n", data, USER_AGENT, VERSION);
+  //sprintf(data, "%sHost: things.ubidots.com\r\nUser-Agent: %s/%s\r\n", data, "curl", "7.43.0");
+  //sprintf(data, "%sX-Auth-Token: %s\r\nConnection: close\r\n\r\n", data, _token);
+  len = sprintf((char *)data, "%sX-Auth-Token: %s\r\n\r\n", data, _token);
+
+  // Allow background processes to operate and clear out
+  // the background as much as possible
+  Particle.process();
+
+  // Initialize connection
+  _tlsclient.init(letencryptCaPem, sizeof(letencryptCaPem));
+  res = _tlsclient.connect(SERVERHTTP, PORTHTTPS);
+  //res = _tlsclient.connect("jupyter.lccllc.info", 4443);
+
+  Log.info("Client connected = %d", _tlsclient.isConnected());
+
+  if (!_tlsclient.verify()) {
+    Log.info("Server Certificates are invalid.");
+  }
+
+  // Some sort of error happened
+  if (res != 0) {
+    Log.info("Connect res = %d -0x%x", res, -res);
+    _tlsclient.close();
+
+    // Try again with jupiter
+    Particle.process();
+    _tlsclient.init(letencryptCaPem, sizeof(letencryptCaPem));
+    res = _tlsclient.connect("jupyter.lccllc.info", 4443);
+
+    if (res != 0) {
+      Log.info("Connect res = %d -0x%x", res, -res);
+      _tlsclient.close();
+      return false;
+    }
+
+    sprintf((char *)data, "GET /api/v1.6/datasources/ HTTP/1.1\r\n");
+    sprintf((char *)data, "%sHost: jupyter.lccllc.info\r\nUser-Agent: %s/%s\r\n", data, USER_AGENT, VERSION);
+    len = sprintf((char *)data, "%sX-Auth-Token: %s\r\n\r\n", data, _token);
+  }
+
+  Log.info("Client connected = %d", _tlsclient.isConnected());
+
+  Log.info("Sending query");
+  //Log.info("%s",data);
+  //_client.println("GET /api/v1.6/datasources/ HTTP/1.1");
+  //_client.println("Host: things.ubidots.com");
+  //_client.println("User-Agent: curl/7.43.0");
+  //_client.println("Accept: */*");
+  //_client.println("X-Auth-Token: w7Vrovijero0h8NBoWgPP7uLmdz5kA");
+  //_client.println();
+  //_client.print(data); 
+  _tlsclient.write(data,len);
+  //_tlsclient.flush();
+  //Log.info("Flush finished.");
+  Particle.process();
+
+  String resp;
+
+  while (timeout < 2000) {
+    Particle.process();
+    if (!_tlsclient.available()) {
+      delay(1);
+      timeout++;
+    } else {
+      char c = _tlsclient.read();
+      if (c == -1) {
+        Log.info("Got a -1 on read?");
+        break;
+      } else {
+        _parser->parse(c);
+        if (c == 10 || c == 13) {
+          if (resp.length()>0) {
+            Log.info("Web>%s",(const char*)resp);
+          }
+          resp = "";
+        } else {
+          resp.concat(c);
+        }
+      }
+    }
+  }
+  Log.info("Timeout: %d",timeout);
+
+  _tlsclient.stop();
+  delay(5);
+  free(data);
+  return false;
+}
+
 /*
  * © Francesco Potortì 2013 - GPLv3 - Revision: 1.13
  *
@@ -797,8 +917,10 @@ void Ubidots::init(const char* token, uint8_t serverMode, uint16_t serverPort) {
     _token = token;
     _server = SERVERNAME;
     _dsName = "particle";
-    _currentValue = 0;
     val = (Value *)malloc(MAX_VALUES * sizeof(Value));
+    _currentValue = 0;
+    devices = (Device *)malloc(MAX_DEVICES * sizeof(Device));
+    _currentDevice = 0;
     String str = System.deviceID();
     _pId = new char[str.length() + 1];
     strcpy(_pId, str.c_str());
@@ -807,6 +929,10 @@ void Ubidots::init(const char* token, uint8_t serverMode, uint16_t serverPort) {
       _serverMode = MODE_HTTP;
     }
     setPort(serverPort);
+}
+
+void Ubidots::setParser(JsonStreamingParser* parser) {
+  _parser = parser;
 }
 
 /**
@@ -834,7 +960,7 @@ DEPRECATED FUNCTIONS
  * WARNING: This function is deprecated, use setDeviceName() instead
  * This function is to set you data source name
  * @arg dsName is the name of your data source name
- * @return true uppon succes
+ * @return true upon success
  */
 
 bool Ubidots::setDatasourceName(char* dsName) {
